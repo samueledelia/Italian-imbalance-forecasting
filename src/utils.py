@@ -44,3 +44,21 @@ def filter_load_by_zona(df, zonas):
 
 def filter_scheduled_foreign_exchange(df, country):
     return df[df['COUNTRY'].str.lower() == country.lower()]
+
+def process_foreign_exchange(df, country):
+    # Step 1: Filter the dataframe by country
+    country_df = df[df['COUNTRY'].str.lower() == country.lower()]
+    
+    # Step 2: Drop the 'COUNTRY' column
+    country_df = country_df.drop(columns=['COUNTRY'])
+    
+    # Step 3: Rename the 'PHYSICAL_FOREIGN_FLOW_MW' column to '<country>_MWQH'
+    country_df = country_df.rename(columns={"PHYSICAL_FOREIGN_FLOW_MW": f"{country.upper()}_MWQH"})
+    
+    # Step 4: Resample to 15-minute intervals and forward fill missing values
+    country_df = country_df.resample('15min').ffill()
+    
+    # Step 5: Adjust the '<country>_MWQH' column values by dividing by 4
+    country_df[f'{country.upper()}_MWQH'] = country_df[f'{country.upper()}_MWQH'] / 4
+    
+    return country_df
