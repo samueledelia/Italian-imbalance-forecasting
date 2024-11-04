@@ -5,3 +5,4 @@ __pycache__/
 # This script contains sensitive information.
 src/open_data.py
 data
+create_entsoe_dataset.ipynb
