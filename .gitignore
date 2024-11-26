@@ -5,4 +5,6 @@ __pycache__/
 # This script contains sensitive information.
 src/open_data.py
 data/entsoe_total_load
+data/df_nord_h_project.csv
+data/df_nord_h_future.csv
 create_entsoe_dataset.ipynb
