@@ -19,7 +19,7 @@ from open_data import fetch_db_table_sqlserver16
 import utils
 import importlib
 
-
+import time
 
 import warnings
 import pandas as pd
@@ -41,337 +41,338 @@ import matplotlib.pyplot as plt
 
 # Reload the module
 importlib.reload(utils)
+while True:
+    # SQL query to fetch data
+    sql_query = "SELECT * FROM TERNA_SUNSET_SEGNO_QH" 
+    qh = fetch_db_table_sqlserver16(sql=sql_query, verbose=False)
+    qh = qh.sort_values(by='ORAINI')
+    # Filter the DataFrame for the relevant columns and rows
+    qh = qh[['MACROZONA', 'ORAINI', 'SBIL_MWH']]
+    # Convert ORAINI to datetime using the correct method
+    qh['ORAINI'] = pd.to_datetime(qh['ORAINI'], format='%Y%m%d%H%M')
+    qh.set_index('ORAINI', inplace=True)
+    # Nord
+    qh_nord = qh[qh['MACROZONA'] == 'NORD']
+
+    # Resample to hourly data and take the sum of 'SBIL_MWH' for each hour
+    h_nord = qh_nord.resample('H').sum()
+
+    # Clean the 'MACROZONA' column to retain only 'NORD'
+    h_nord['MACROZONA'] = h_nord['MACROZONA'].str[:4]
+
+    h_nord = h_nord.drop(columns = ['MACROZONA'])
+
+    lags = [-1, -2, -3, -24]
+
+    # Create a new DataFrame with SBIL_MWH and its lagged values
+    df_sbil_lagged = pd.DataFrame(h_nord['SBIL_MWH'])
+
+    # Add lagged columns
+    for lag in lags:
+        df_sbil_lagged[f'SBIL_MWH_lag{abs(lag)}'] = df_sbil_lagged['SBIL_MWH'].shift(-lag)
+
+    df_sbil_lagged = df_sbil_lagged.drop('SBIL_MWH', axis=1)
+    df_sbil_lagged = df_sbil_lagged.resample('H').sum()
+
+    # SQL query to fetch data
+    sql_query = "SELECT * FROM GME_MGP_MI_QUANTITA" 
+    volumes = fetch_db_table_sqlserver16(sql=sql_query, verbose=False)
+    volumes = volumes.sort_values(by=['FLOWDATE','FLOWHOUR'])
+    # Convert FLOWDATE to a string and then to datetime (YYYYMMDD format)
+    volumes['FLOWDATE'] = pd.to_datetime(volumes['FLOWDATE'].astype(str), format='%Y%m%d')
+    # Subtracting one hour from FLOWHOUR
+    volumes['FLOWHOUR'] = volumes['FLOWHOUR'] - 1
+    # Convert FLOWHOUR to timedelta (number of hours) and add it to FLOWDATE
+    volumes['ORAINI'] = volumes['FLOWDATE'] + pd.to_timedelta(volumes['FLOWHOUR'], unit='h')
+    # Dropping the old FLOWDATE and FLOWHOUR columns
+    volumes = volumes.drop(columns=['FLOWDATE', 'FLOWHOUR'])
+    volumes.set_index('ORAINI', inplace=True)
 
-# SQL query to fetch data
-sql_query = "SELECT * FROM TERNA_SUNSET_SEGNO_QH" 
-qh = fetch_db_table_sqlserver16(sql=sql_query, verbose=False)
-qh = qh.sort_values(by='ORAINI')
-# Filter the DataFrame for the relevant columns and rows
-qh = qh[['MACROZONA', 'ORAINI', 'SBIL_MWH']]
-# Convert ORAINI to datetime using the correct method
-qh['ORAINI'] = pd.to_datetime(qh['ORAINI'], format='%Y%m%d%H%M')
-qh.set_index('ORAINI', inplace=True)
-# Nord
-qh_nord = qh[qh['MACROZONA'] == 'NORD']
-
-# Resample to hourly data and take the sum of 'SBIL_MWH' for each hour
-h_nord = qh_nord.resample('H').sum()
-
-# Clean the 'MACROZONA' column to retain only 'NORD'
-h_nord['MACROZONA'] = h_nord['MACROZONA'].str[:4]
-
-h_nord = h_nord.drop(columns = ['MACROZONA'])
+    mgp_volumes = volumes[volumes['MARKET'] == 'MGP']
+    mgp_volumes = mgp_volumes.drop(columns=['MARKET'])
 
-lags = [-1, -2, -3, -24]
-
-# Create a new DataFrame with SBIL_MWH and its lagged values
-df_sbil_lagged = pd.DataFrame(h_nord['SBIL_MWH'])
 
-# Add lagged columns
-for lag in lags:
-    df_sbil_lagged[f'SBIL_MWH_lag{abs(lag)}'] = df_sbil_lagged['SBIL_MWH'].shift(-lag)
-
-df_sbil_lagged = df_sbil_lagged.drop('SBIL_MWH', axis=1)
-df_sbil_lagged = df_sbil_lagged.resample('H').sum()
+    mgp_volumes_nord = mgp_volumes[['NORD_PURCHASES', 'NORD_SALES']].copy()
+    mgp_volumes_nord.rename(columns={"NORD_PURCHASES": "MGP_NORD_PURCHASES", "NORD_SALES": "MGP_NORD_SALES"}, inplace=True)
+    mgp_volumes_nord = mgp_volumes_nord[~mgp_volumes_nord.index.duplicated(keep='first')]
 
-# SQL query to fetch data
-sql_query = "SELECT * FROM GME_MGP_MI_QUANTITA" 
-volumes = fetch_db_table_sqlserver16(sql=sql_query, verbose=False)
-volumes = volumes.sort_values(by=['FLOWDATE','FLOWHOUR'])
-# Convert FLOWDATE to a string and then to datetime (YYYYMMDD format)
-volumes['FLOWDATE'] = pd.to_datetime(volumes['FLOWDATE'].astype(str), format='%Y%m%d')
-# Subtracting one hour from FLOWHOUR
-volumes['FLOWHOUR'] = volumes['FLOWHOUR'] - 1
-# Convert FLOWHOUR to timedelta (number of hours) and add it to FLOWDATE
-volumes['ORAINI'] = volumes['FLOWDATE'] + pd.to_timedelta(volumes['FLOWHOUR'], unit='h')
-# Dropping the old FLOWDATE and FLOWHOUR columns
-volumes = volumes.drop(columns=['FLOWDATE', 'FLOWHOUR'])
-volumes.set_index('ORAINI', inplace=True)
 
-mgp_volumes = volumes[volumes['MARKET'] == 'MGP']
-mgp_volumes = mgp_volumes.drop(columns=['MARKET'])
+    # Add the source directory to the system path
+    sys.path.append(os.path.abspath('../../src'))
+    from open_data import fetch_db_table_sqlserver16_
+    import utils
+    import importlib
+    # Reload the module
+    importlib.reload(utils)
 
+    # SQL query to fetch data
+    sql_query = """
+    SELECT * FROM POWER_UNBALANCE
+    """
+    power_curve = fetch_db_table_sqlserver16(sql=sql_query, verbose=False)
+    power_curve = power_curve.sort_values(by='TIMESTAMP')
 
-mgp_volumes_nord = mgp_volumes[['NORD_PURCHASES', 'NORD_SALES']].copy()
-mgp_volumes_nord.rename(columns={"NORD_PURCHASES": "MGP_NORD_PURCHASES", "NORD_SALES": "MGP_NORD_SALES"}, inplace=True)
-mgp_volumes_nord = mgp_volumes_nord[~mgp_volumes_nord.index.duplicated(keep='first')]
+    power_curve = power_curve.pivot(index='TIMESTAMP', columns='SOURCE_ZONE', values='UNBALANCE_kW')
 
+    # Rename columns for clarity (optional, if needed)
+    power_curve.columns = [f"UNBALANCE_{col}" for col in power_curve.columns]
 
-# Add the source directory to the system path
-sys.path.append(os.path.abspath('../../src'))
-from open_data import fetch_db_table_sqlserver16_
-import utils
-import importlib
-# Reload the module
-importlib.reload(utils)
+    # Display the resulting DataFrame
+    power_curve = power_curve.resample('H').sum()
 
-# SQL query to fetch data
-sql_query = """
-SELECT * FROM POWER_UNBALANCE
-"""
-power_curve = fetch_db_table_sqlserver16(sql=sql_query, verbose=False)
-power_curve = power_curve.sort_values(by='TIMESTAMP')
+    power_curve = power_curve[["UNBALANCE_IDRO-NON-PROGRAMMABILE_MACRONORD", "UNBALANCE_IDRO-PROGRAMMABILE_NORD", "UNBALANCE_SOLARE_NORD"]]
 
-power_curve = power_curve.pivot(index='TIMESTAMP', columns='SOURCE_ZONE', values='UNBALANCE_kW')
+    power_curve = power_curve.rename_axis("ORAINI")
 
-# Rename columns for clarity (optional, if needed)
-power_curve.columns = [f"UNBALANCE_{col}" for col in power_curve.columns]
 
-# Display the resulting DataFrame
-power_curve = power_curve.resample('H').sum()
+    import sys
+    import os
+    import pandas as pd
 
-power_curve = power_curve[["UNBALANCE_IDRO-NON-PROGRAMMABILE_MACRONORD", "UNBALANCE_IDRO-PROGRAMMABILE_NORD", "UNBALANCE_SOLARE_NORD"]]
+    # Add the source directory to the system path
+    sys.path.append(os.path.abspath('../../src'))
+    from open_data import fetch_db_table_sqlserver16
+    import utils
+    import importlib
 
-power_curve = power_curve.rename_axis("ORAINI")
+    # Reload the module
+    importlib.reload(utils)
 
+    # SQL query to fetch data
+    sql_query = "SELECT * FROM ENTSOE_DATA" 
+    entsoe_data = fetch_db_table_sqlserver16(sql=sql_query, verbose=False)
+    entsoe_data = entsoe_data.sort_values(by='ORAINI')
 
-import sys
-import os
-import pandas as pd
+    entsoe_data = entsoe_data[entsoe_data['DOMAIN'] == 'LOAD']
+    entsoe_data = entsoe_data.drop(columns=['DOMAIN'])
+    # Convert ORAINI to datetime using the correct method
+    entsoe_data['ORAINI'] = pd.to_datetime(entsoe_data['ORAINI'], format='%Y%m%d%H%M')
+    entsoe_data.set_index('ORAINI', inplace=True)
 
-# Add the source directory to the system path
-sys.path.append(os.path.abspath('../../src'))
-from open_data import fetch_db_table_sqlserver16
-import utils
-import importlib
+    day_ahead_load = entsoe_data[entsoe_data['SCOPE'] == 'DAY AHEAD']
+    day_ahead_load = day_ahead_load[['CODZONA', 'VALUE']]
+    day_ahead_load["FORECAST_TOTAL_LOAD_MW"] = day_ahead_load["VALUE"]
+    day_ahead_load = day_ahead_load.drop(columns="VALUE")
 
-# Reload the module
-importlib.reload(utils)
+    actual_load = entsoe_data[entsoe_data['SCOPE'] == 'ACTUAL']
+    actual_load = actual_load[['CODZONA', 'VALUE']]
+    actual_load["TOTAL_LOAD_MW"] = actual_load["VALUE"]
+    actual_load = actual_load.drop(columns="VALUE")
 
-# SQL query to fetch data
-sql_query = "SELECT * FROM ENTSOE_DATA" 
-entsoe_data = fetch_db_table_sqlserver16(sql=sql_query, verbose=False)
-entsoe_data = entsoe_data.sort_values(by='ORAINI')
+    entsoe_load = pd.merge(day_ahead_load, actual_load, on=['ORAINI', 'CODZONA'])
 
-entsoe_data = entsoe_data[entsoe_data['DOMAIN'] == 'LOAD']
-entsoe_data = entsoe_data.drop(columns=['DOMAIN'])
-# Convert ORAINI to datetime using the correct method
-entsoe_data['ORAINI'] = pd.to_datetime(entsoe_data['ORAINI'], format='%Y%m%d%H%M')
-entsoe_data.set_index('ORAINI', inplace=True)
+    subset_zonas = ['NORD']
+    mnord_load = entsoe_load[entsoe_load['CODZONA'].isin(subset_zonas)]
+    mnord_load = mnord_load.drop(columns=['CODZONA'])
 
-day_ahead_load = entsoe_data[entsoe_data['SCOPE'] == 'DAY AHEAD']
-day_ahead_load = day_ahead_load[['CODZONA', 'VALUE']]
-day_ahead_load["FORECAST_TOTAL_LOAD_MW"] = day_ahead_load["VALUE"]
-day_ahead_load = day_ahead_load.drop(columns="VALUE")
 
-actual_load = entsoe_data[entsoe_data['SCOPE'] == 'ACTUAL']
-actual_load = actual_load[['CODZONA', 'VALUE']]
-actual_load["TOTAL_LOAD_MW"] = actual_load["VALUE"]
-actual_load = actual_load.drop(columns="VALUE")
+    from functools import reduce
+    # List of all the DataFrames to be merged
+    dataframes = [h_nord, df_sbil_lagged, mgp_volumes_nord, mnord_load, power_curve] #mi1_volumes_nord
+    # Use reduce to merge all DataFrames on 'ORAINI'
+    df_nord_h_project = reduce(lambda left, right: pd.merge(left, right, on='ORAINI', how='outer'), dataframes)
 
-entsoe_load = pd.merge(day_ahead_load, actual_load, on=['ORAINI', 'CODZONA'])
+    #df_nord_h = df_nord.drop(columns="MACROZONA")
+    df_nord_h_project = df_nord_h_project[df_nord_h_project.index >= '2024-08-27']
 
-subset_zonas = ['NORD']
-mnord_load = entsoe_load[entsoe_load['CODZONA'].isin(subset_zonas)]
-mnord_load = mnord_load.drop(columns=['CODZONA'])
 
+    df_nord = df_nord_h_project
 
-from functools import reduce
-# List of all the DataFrames to be merged
-dataframes = [h_nord, df_sbil_lagged, mgp_volumes_nord, mnord_load, power_curve] #mi1_volumes_nord
-# Use reduce to merge all DataFrames on 'ORAINI'
-df_nord_h_project = reduce(lambda left, right: pd.merge(left, right, on='ORAINI', how='outer'), dataframes)
+    # Check for duplicate timestamps in the index and remove duplicates
+    df_nord = df_nord[~df_nord.index.duplicated(keep='first')]
 
-#df_nord_h = df_nord.drop(columns="MACROZONA")
-df_nord_h_project = df_nord_h_project[df_nord_h_project.index >= '2024-08-27']
 
+    # Check for duplicate timestamps in the index and remove duplicates
+    df_nord = df_nord[~df_nord.index.duplicated(keep='first')]
 
-df_nord = df_nord_h_project
+    # Define past, future, and present covariates
+    past_covariates = df_nord[['TOTAL_LOAD_MW', 'FORECAST_TOTAL_LOAD_MW']]
 
-# Check for duplicate timestamps in the index and remove duplicates
-df_nord = df_nord[~df_nord.index.duplicated(keep='first')]
+    future_covariates = df_nord[['MGP_NORD_PURCHASES', 'MGP_NORD_SALES']]
 
+    present_covariates = df_nord[['SBIL_MWH_lag1', 'SBIL_MWH_lag2', 'SBIL_MWH_lag3', 'SBIL_MWH_lag24', 'UNBALANCE_IDRO-NON-PROGRAMMABILE_MACRONORD', 'UNBALANCE_IDRO-PROGRAMMABILE_NORD', 'UNBALANCE_SOLARE_NORD']]
+    target = df_nord['SBIL_MWH']
 
-# Check for duplicate timestamps in the index and remove duplicates
-df_nord = df_nord[~df_nord.index.duplicated(keep='first')]
 
-# Define past, future, and present covariates
-past_covariates = df_nord[['TOTAL_LOAD_MW', 'FORECAST_TOTAL_LOAD_MW']]
+    # Shift target to predict the second step ahead (t+2)
+    df_nord['SBIL_MWH_t+2'] = df_nord['SBIL_MWH'].shift(-2)
 
-future_covariates = df_nord[['MGP_NORD_PURCHASES', 'MGP_NORD_SALES']]
+    # Drop rows with NaN values resulting from the shift
+    df_nord = df_nord.dropna()
 
-present_covariates = df_nord[['SBIL_MWH_lag1', 'SBIL_MWH_lag2', 'SBIL_MWH_lag3', 'SBIL_MWH_lag24', 'UNBALANCE_IDRO-NON-PROGRAMMABILE_MACRONORD', 'UNBALANCE_IDRO-PROGRAMMABILE_NORD', 'UNBALANCE_SOLARE_NORD']]
-target = df_nord['SBIL_MWH']
+    # Features (X) and Target (y)
+    X = df_nord.drop(columns=['SBIL_MWH', 'SBIL_MWH_t+2'])
+    y = df_nord['SBIL_MWH_t+2']
 
+    # Split the data into training and testing sets
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, shuffle=False)
 
-# Shift target to predict the second step ahead (t+2)
-df_nord['SBIL_MWH_t+2'] = df_nord['SBIL_MWH'].shift(-2)
+    # Normalize the data
+    scaler_X = StandardScaler()
+    scaler_y = StandardScaler()
 
-# Drop rows with NaN values resulting from the shift
-df_nord = df_nord.dropna()
+    X_train = scaler_X.fit_transform(X_train)
+    X_test = scaler_X.transform(X_test)
 
-# Features (X) and Target (y)
-X = df_nord.drop(columns=['SBIL_MWH', 'SBIL_MWH_t+2'])
-y = df_nord['SBIL_MWH_t+2']
+    y_train = scaler_y.fit_transform(y_train.values.reshape(-1, 1)).flatten()
+    y_test = scaler_y.transform(y_test.values.reshape(-1, 1)).flatten()
 
-# Split the data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, shuffle=False)
+    # Define the MLP Model
+    model2 = Sequential()
 
-# Normalize the data
-scaler_X = StandardScaler()
-scaler_y = StandardScaler()
+    # Input layer + First hidden layer with L2 regularization
+    model2.add(Dense(8, input_dim=X_train.shape[1], activation='relu', kernel_regularizer=l2(0.01)))
 
-X_train = scaler_X.fit_transform(X_train)
-X_test = scaler_X.transform(X_test)
+    # Second hidden layer with L2 regularization
+    model2.add(Dense(8, activation='relu', kernel_regularizer=l2(0.01)))
 
-y_train = scaler_y.fit_transform(y_train.values.reshape(-1, 1)).flatten()
-y_test = scaler_y.transform(y_test.values.reshape(-1, 1)).flatten()
+    # Output layer (single neuron for regression)
+    model2.add(Dense(1))
 
-# Define the MLP Model
-model2 = Sequential()
+    # Adam optimizer with initial learning rate 0.001
+    optimizer = Adam(learning_rate=0.001)
 
-# Input layer + First hidden layer with L2 regularization
-model2.add(Dense(8, input_dim=X_train.shape[1], activation='relu', kernel_regularizer=l2(0.01)))
+    # Compile the model
+    model2.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
 
-# Second hidden layer with L2 regularization
-model2.add(Dense(8, activation='relu', kernel_regularizer=l2(0.01)))
+    # Early stopping to prevent overfitting
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
 
-# Output layer (single neuron for regression)
-model2.add(Dense(1))
+    # Train the model
+    history = model2.fit(X_train, y_train, epochs=100, batch_size=512, validation_split=0.2, callbacks=[early_stopping])
 
-# Adam optimizer with initial learning rate 0.001
-optimizer = Adam(learning_rate=0.001)
 
-# Compile the model
-model2.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
+    # Evaluate the model on test data
+    y_pred = model2.predict(X_test)
 
-# Early stopping to prevent overfitting
-early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+    # Inverse transform predictions and true values to get the original scale
+    y_test_orig = scaler_y.inverse_transform(y_test.reshape(-1, 1)).flatten()
+    y_pred_orig = scaler_y.inverse_transform(y_pred.reshape(-1, 1)).flatten()
 
-# Train the model
-history = model2.fit(X_train, y_train, epochs=100, batch_size=512, validation_split=0.2, callbacks=[early_stopping])
+    # Number of future steps to predict
+    n_future_steps = 2  # Direct prediction of 2 steps ahead
 
+    # Get the last timestamp from the dataset
+    last_timestamp = df_nord.index[-1]
 
-# Evaluate the model on test data
-y_pred = model2.predict(X_test)
+    # Get the most recent data from the test set for the starting point
+    last_input = X_test[-1].reshape(1, -1)  # Last row from test features
 
-# Inverse transform predictions and true values to get the original scale
-y_test_orig = scaler_y.inverse_transform(y_test.reshape(-1, 1)).flatten()
-y_pred_orig = scaler_y.inverse_transform(y_pred.reshape(-1, 1)).flatten()
+    # Placeholder for predictions
+    predicted_values = []
 
-# Number of future steps to predict
-n_future_steps = 2  # Direct prediction of 2 steps ahead
+    # Iteratively predict the next steps
+    current_input = last_input
+    for step in range(n_future_steps):
+        # Predict the next step
+        next_value = model2.predict(current_input)
+        
+        # Save the prediction
+        predicted_values.append(next_value.flatten()[0])
+        
+        # Update the input for the next prediction
+        # Use the predicted value as a replacement for the target feature in `current_input`
+        # Assuming the target is the last column of `X_test`, replace it iteratively
+        current_input = np.append(current_input[:, :-1], next_value, axis=1)
 
-# Get the last timestamp from the dataset
-last_timestamp = df_nord.index[-1]
+    # Convert predicted values to the original scale
+    predicted_values_orig = scaler_y.inverse_transform(np.array(predicted_values).reshape(-1, 1)).flatten()
 
-# Get the most recent data from the test set for the starting point
-last_input = X_test[-1].reshape(1, -1)  # Last row from test features
+    # Add 1-hour intervals for the future steps
+    future_dates = [last_timestamp + pd.Timedelta(hours=i + 1) for i in range(n_future_steps)]
 
-# Placeholder for predictions
-predicted_values = []
+    # Ensure both lists have the same length
+    assert len(future_dates) == len(predicted_values_orig), "Mismatch between dates and predictions!"
 
-# Iteratively predict the next steps
-current_input = last_input
-for step in range(n_future_steps):
-    # Predict the next step
-    next_value = model2.predict(current_input)
-    
-    # Save the prediction
-    predicted_values.append(next_value.flatten()[0])
-    
-    # Update the input for the next prediction
-    # Use the predicted value as a replacement for the target feature in `current_input`
-    # Assuming the target is the last column of `X_test`, replace it iteratively
-    current_input = np.append(current_input[:, :-1], next_value, axis=1)
+    # Create a DataFrame to store the predicted future values
+    future_df = pd.DataFrame({
+        'Date': future_dates,
+        'Predicted_SBIL_MWH': predicted_values_orig
+    })
 
-# Convert predicted values to the original scale
-predicted_values_orig = scaler_y.inverse_transform(np.array(predicted_values).reshape(-1, 1)).flatten()
+    # Debug: Confirm the DataFrame structure
+    print(f"Future DataFrame:\n{future_df}")
 
-# Add 1-hour intervals for the future steps
-future_dates = [last_timestamp + pd.Timedelta(hours=i + 1) for i in range(n_future_steps)]
+    # Plotting
+    plt.figure(figsize=(12, 6))
 
-# Ensure both lists have the same length
-assert len(future_dates) == len(predicted_values_orig), "Mismatch between dates and predictions!"
+    # Get the last `n` actual observations (from the test set) for plotting
+    n_last_obs = 20  # For example, plot the last 20 observed values
+    last_observed_dates = df_nord.index[-n_last_obs:]  # Get the dates for the last observations
+    last_observed_values = scaler_y.inverse_transform(y_test[-n_last_obs:].reshape(-1, 1)).flatten()
 
-# Create a DataFrame to store the predicted future values
-future_df = pd.DataFrame({
-    'Date': future_dates,
-    'Predicted_SBIL_MWH': predicted_values_orig
-})
+    last_observed_df = pd.DataFrame({
+        'Date': last_observed_dates,
+        'Actual_SBIL_MWH': last_observed_values
+    })
 
-# Debug: Confirm the DataFrame structure
-print(f"Future DataFrame:\n{future_df}")
+    # Plot observed values
+    plt.step(last_observed_df['Date'], last_observed_df['Actual_SBIL_MWH'], label='Observed SBIL_MWH', color='blue')
 
-# Plotting
-plt.figure(figsize=(12, 6))
+    # Plot predicted values with large points
+    plt.plot(future_df['Date'], future_df['Predicted_SBIL_MWH'], label='Predicted Future SBIL_MWH', color='red', linestyle='--', marker='o', markersize=10)
 
-# Get the last `n` actual observations (from the test set) for plotting
-n_last_obs = 20  # For example, plot the last 20 observed values
-last_observed_dates = df_nord.index[-n_last_obs:]  # Get the dates for the last observations
-last_observed_values = scaler_y.inverse_transform(y_test[-n_last_obs:].reshape(-1, 1)).flatten()
+    # Add labels and title
+    plt.title('Observed and Predicted Future SBIL_MWH Values (Hourly Steps)')
+    plt.xlabel('Date')
+    plt.ylabel('SBIL_MWH')
+    plt.xticks(rotation=45)
+    plt.legend()
+    plt.grid()
+    plt.tight_layout()
 
-last_observed_df = pd.DataFrame({
-    'Date': last_observed_dates,
-    'Actual_SBIL_MWH': last_observed_values
-})
+    # Show the plot
+    plt.show()
 
-# Plot observed values
-plt.step(last_observed_df['Date'], last_observed_df['Actual_SBIL_MWH'], label='Observed SBIL_MWH', color='blue')
+    import os
+    import pandas as pd
+    from datetime import datetime
 
-# Plot predicted values with large points
-plt.plot(future_df['Date'], future_df['Predicted_SBIL_MWH'], label='Predicted Future SBIL_MWH', color='red', linestyle='--', marker='o', markersize=10)
+    # File path for storing predictions
+    file_path = r'C:\imbalance_forecast\data\df_nord_h_future.csv'
 
-# Add labels and title
-plt.title('Observed and Predicted Future SBIL_MWH Values (Hourly Steps)')
-plt.xlabel('Date')
-plt.ylabel('SBIL_MWH')
-plt.xticks(rotation=45)
-plt.legend()
-plt.grid()
-plt.tight_layout()
+    # Step 1: Check if the file exists and is not empty
+    if os.path.exists(file_path) and os.stat(file_path).st_size > 0:
+        # Read the existing DataFrame from the CSV file
+        df_existing = pd.read_csv(file_path)
+    else:
+        # If the file does not exist or is empty, create an empty DataFrame with the necessary columns
+        df_existing = pd.DataFrame(columns=['Date', 'Predicted_SBIL_MWH_hplus1', 'Predicted_SBIL_MWH_hplus2', 'Run_Timestamp'])
 
-# Show the plot
-plt.show()
+    # Step 2: Ensure the columns exist, and if the file is empty, create them
+    if df_existing.empty:
+        df_existing = pd.DataFrame(columns=['Date', 'Predicted_SBIL_MWH_hplus1', 'Predicted_SBIL_MWH_hplus2', 'Run_Timestamp'])
 
-import os
-import pandas as pd
-from datetime import datetime
+    # Step 3: Ensure the 'Date' column is in datetime format for proper comparison
+    df_existing['Date'] = pd.to_datetime(df_existing['Date'], errors='coerce')
 
-# File path for storing predictions
-file_path = r'C:\imbalance_forecast\data\df_nord_h_future.csv'
+    # Step 4: Assign predictions from `future_df` to respective columns
+    # Assuming `future_df` has predictions for h+1 in row 0 and h+2 in row 1
+    predicted_hplus1 = future_df.loc[0, 'Predicted_SBIL_MWH']
+    predicted_hplus2 = future_df.loc[1, 'Predicted_SBIL_MWH']
 
-# Step 1: Check if the file exists and is not empty
-if os.path.exists(file_path) and os.stat(file_path).st_size > 0:
-    # Read the existing DataFrame from the CSV file
-    df_existing = pd.read_csv(file_path)
-else:
-    # If the file does not exist or is empty, create an empty DataFrame with the necessary columns
-    df_existing = pd.DataFrame(columns=['Date', 'Predicted_SBIL_MWH_hplus1', 'Predicted_SBIL_MWH_hplus2', 'Run_Timestamp'])
+    # Use the timestamp of the h+1 prediction for the new row
+    run_timestamp = datetime.now()
+    future_date = future_df.loc[0, 'Date']
 
-# Step 2: Ensure the columns exist, and if the file is empty, create them
-if df_existing.empty:
-    df_existing = pd.DataFrame(columns=['Date', 'Predicted_SBIL_MWH_hplus1', 'Predicted_SBIL_MWH_hplus2', 'Run_Timestamp'])
+    # Step 5: Check if the date already exists in `df_existing`
+    if future_date in df_existing['Date'].values:
+        # Update existing row
+        df_existing.loc[df_existing['Date'] == future_date, 'Predicted_SBIL_MWH_hplus1'] = predicted_hplus1
+        df_existing.loc[df_existing['Date'] == future_date, 'Predicted_SBIL_MWH_hplus2'] = predicted_hplus2
+        df_existing.loc[df_existing['Date'] == future_date, 'Run_Timestamp'] = run_timestamp
+    else:
+        # Append a new row with predictions
+        new_row = {
+            'Date': future_date,
+            'Predicted_SBIL_MWH_hplus1': predicted_hplus1,
+            'Predicted_SBIL_MWH_hplus2': predicted_hplus2,
+            'Run_Timestamp': run_timestamp
+        }
+        df_existing = pd.concat([df_existing, pd.DataFrame([new_row])], ignore_index=True)
 
-# Step 3: Ensure the 'Date' column is in datetime format for proper comparison
-df_existing['Date'] = pd.to_datetime(df_existing['Date'], errors='coerce')
+    # Step 6: Save the updated DataFrame back to the CSV file
+    df_existing.to_csv(file_path, index=False)
 
-# Step 4: Assign predictions from `future_df` to respective columns
-# Assuming `future_df` has predictions for h+1 in row 0 and h+2 in row 1
-predicted_hplus1 = future_df.loc[0, 'Predicted_SBIL_MWH']
-predicted_hplus2 = future_df.loc[1, 'Predicted_SBIL_MWH']
-
-# Use the timestamp of the h+1 prediction for the new row
-run_timestamp = datetime.now()
-future_date = future_df.loc[0, 'Date']
-
-# Step 5: Check if the date already exists in `df_existing`
-if future_date in df_existing['Date'].values:
-    # Update existing row
-    df_existing.loc[df_existing['Date'] == future_date, 'Predicted_SBIL_MWH_hplus1'] = predicted_hplus1
-    df_existing.loc[df_existing['Date'] == future_date, 'Predicted_SBIL_MWH_hplus2'] = predicted_hplus2
-    df_existing.loc[df_existing['Date'] == future_date, 'Run_Timestamp'] = run_timestamp
-else:
-    # Append a new row with predictions
-    new_row = {
-        'Date': future_date,
-        'Predicted_SBIL_MWH_hplus1': predicted_hplus1,
-        'Predicted_SBIL_MWH_hplus2': predicted_hplus2,
-        'Run_Timestamp': run_timestamp
-    }
-    df_existing = pd.concat([df_existing, pd.DataFrame([new_row])], ignore_index=True)
-
-# Step 6: Save the updated DataFrame back to the CSV file
-df_existing.to_csv(file_path, index=False)
-
-print("Data successfully appended or updated in the file.")
+    print("Data successfully appended or updated in the file.")
+    time.sleep(3600)
