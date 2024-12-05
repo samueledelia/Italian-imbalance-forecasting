@@ -138,37 +138,10 @@ while True:
     # Reload the module
     importlib.reload(utils)
 
-    # SQL query to fetch data
-    sql_query = "SELECT * FROM ENTSOE_DATA" 
-    entsoe_data = fetch_db_table_sqlserver16(sql=sql_query, verbose=False)
-    entsoe_data = entsoe_data.sort_values(by='ORAINI')
-
-    entsoe_data = entsoe_data[entsoe_data['DOMAIN'] == 'LOAD']
-    entsoe_data = entsoe_data.drop(columns=['DOMAIN'])
-    # Convert ORAINI to datetime using the correct method
-    entsoe_data['ORAINI'] = pd.to_datetime(entsoe_data['ORAINI'], format='%Y%m%d%H%M')
-    entsoe_data.set_index('ORAINI', inplace=True)
-
-    day_ahead_load = entsoe_data[entsoe_data['SCOPE'] == 'DAY AHEAD']
-    day_ahead_load = day_ahead_load[['CODZONA', 'VALUE']]
-    day_ahead_load["FORECAST_TOTAL_LOAD_MW"] = day_ahead_load["VALUE"]
-    day_ahead_load = day_ahead_load.drop(columns="VALUE")
-
-    actual_load = entsoe_data[entsoe_data['SCOPE'] == 'ACTUAL']
-    actual_load = actual_load[['CODZONA', 'VALUE']]
-    actual_load["TOTAL_LOAD_MW"] = actual_load["VALUE"]
-    actual_load = actual_load.drop(columns="VALUE")
-
-    entsoe_load = pd.merge(day_ahead_load, actual_load, on=['ORAINI', 'CODZONA'])
-
-    subset_zonas = ['NORD']
-    mnord_load = entsoe_load[entsoe_load['CODZONA'].isin(subset_zonas)]
-    mnord_load = mnord_load.drop(columns=['CODZONA'])
-
 
     from functools import reduce
     # List of all the DataFrames to be merged
-    dataframes = [h_nord, df_sbil_lagged, mgp_volumes_nord, mnord_load, power_curve] #mi1_volumes_nord
+    dataframes = [h_nord, df_sbil_lagged, mgp_volumes_nord, power_curve] #mi1_volumes_nord
     # Use reduce to merge all DataFrames on 'ORAINI'
     df_nord_h_project = reduce(lambda left, right: pd.merge(left, right, on='ORAINI', how='outer'), dataframes)
 
@@ -186,23 +159,19 @@ while True:
     df_nord = df_nord[~df_nord.index.duplicated(keep='first')]
 
     # Define past, future, and present covariates
-    past_covariates = df_nord[['TOTAL_LOAD_MW', 'FORECAST_TOTAL_LOAD_MW']]
+    past_covariates = []
 
     future_covariates = df_nord[['MGP_NORD_PURCHASES', 'MGP_NORD_SALES']]
 
     present_covariates = df_nord[['SBIL_MWH_lag1', 'SBIL_MWH_lag2', 'SBIL_MWH_lag3', 'SBIL_MWH_lag24', 'UNBALANCE_IDRO-NON-PROGRAMMABILE_MACRONORD', 'UNBALANCE_IDRO-PROGRAMMABILE_NORD', 'UNBALANCE_SOLARE_NORD']]
     target = df_nord['SBIL_MWH']
 
-
-    # Shift target to predict the second step ahead (t+2)
-    df_nord['SBIL_MWH_t+2'] = df_nord['SBIL_MWH'].shift(-2)
-
     # Drop rows with NaN values resulting from the shift
     df_nord = df_nord.dropna()
 
     # Features (X) and Target (y)
-    X = df_nord.drop(columns=['SBIL_MWH', 'SBIL_MWH_t+2'])
-    y = df_nord['SBIL_MWH_t+2']
+    X = df_nord.drop(columns=['SBIL_MWH'])
+    y = df_nord['SBIL_MWH']
 
     # Split the data into training and testing sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, shuffle=False)
@@ -236,7 +205,7 @@ while True:
     model2.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
 
     # Early stopping to prevent overfitting
-    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+    early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
 
     # Train the model
     history = model2.fit(X_train, y_train, epochs=100, batch_size=512, validation_split=0.2, callbacks=[early_stopping])
@@ -250,7 +219,7 @@ while True:
     y_pred_orig = scaler_y.inverse_transform(y_pred.reshape(-1, 1)).flatten()
 
     # Number of future steps to predict
-    n_future_steps = 2  # Direct prediction of 2 steps ahead
+    n_future_steps = 4  # Direct prediction of 2 steps ahead
 
     # Get the last timestamp from the dataset
     last_timestamp = df_nord.index[-1]
@@ -337,11 +306,11 @@ while True:
         df_existing = pd.read_csv(file_path)
     else:
         # If the file does not exist or is empty, create an empty DataFrame with the necessary columns
-        df_existing = pd.DataFrame(columns=['Date', 'Predicted_SBIL_MWH_hplus1', 'Predicted_SBIL_MWH_hplus2', 'Run_Timestamp'])
+        df_existing = pd.DataFrame(columns=['Date', 'Predicted_SBIL_MWH_hplus1', 'Predicted_SBIL_MWH_hplus2', 'Predicted_SBIL_MWH_hplus3', 'Predicted_SBIL_MWH_hplus4', 'Run_Timestamp'])
 
     # Step 2: Ensure the columns exist, and if the file is empty, create them
     if df_existing.empty:
-        df_existing = pd.DataFrame(columns=['Date', 'Predicted_SBIL_MWH_hplus1', 'Predicted_SBIL_MWH_hplus2', 'Run_Timestamp'])
+        df_existing = pd.DataFrame(columns=['Date', 'Predicted_SBIL_MWH_hplus1', 'Predicted_SBIL_MWH_hplus2', 'Predicted_SBIL_MWH_hplus3', 'Predicted_SBIL_MWH_hplus4', 'Run_Timestamp'])
 
     # Step 3: Ensure the 'Date' column is in datetime format for proper comparison
     df_existing['Date'] = pd.to_datetime(df_existing['Date'], errors='coerce')
@@ -350,6 +319,8 @@ while True:
     # Assuming `future_df` has predictions for h+1 in row 0 and h+2 in row 1
     predicted_hplus1 = future_df.loc[0, 'Predicted_SBIL_MWH']
     predicted_hplus2 = future_df.loc[1, 'Predicted_SBIL_MWH']
+    predicted_hplus3 = future_df.loc[2, 'Predicted_SBIL_MWH']
+    predicted_hplus4 = future_df.loc[3, 'Predicted_SBIL_MWH']
 
     # Use the timestamp of the h+1 prediction for the new row
     run_timestamp = datetime.now()
@@ -360,6 +331,8 @@ while True:
         # Update existing row
         df_existing.loc[df_existing['Date'] == future_date, 'Predicted_SBIL_MWH_hplus1'] = predicted_hplus1
         df_existing.loc[df_existing['Date'] == future_date, 'Predicted_SBIL_MWH_hplus2'] = predicted_hplus2
+        df_existing.loc[df_existing['Date'] == future_date, 'Predicted_SBIL_MWH_hplus3'] = predicted_hplus3
+        df_existing.loc[df_existing['Date'] == future_date, 'Predicted_SBIL_MWH_hplus4'] = predicted_hplus4
         df_existing.loc[df_existing['Date'] == future_date, 'Run_Timestamp'] = run_timestamp
     else:
         # Append a new row with predictions
@@ -367,6 +340,8 @@ while True:
             'Date': future_date,
             'Predicted_SBIL_MWH_hplus1': predicted_hplus1,
             'Predicted_SBIL_MWH_hplus2': predicted_hplus2,
+            'Predicted_SBIL_MWH_hplus3': predicted_hplus3,
+            'Predicted_SBIL_MWH_hplus4': predicted_hplus4,
             'Run_Timestamp': run_timestamp
         }
         df_existing = pd.concat([df_existing, pd.DataFrame([new_row])], ignore_index=True)
