@@ -25,11 +25,11 @@ import warnings
 import pandas as pd
 import numpy as np
 import math
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.regularizers import l2
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.models import Sequential # type: ignore
+from tensorflow.keras.layers import Dense # type: ignore
+from tensorflow.keras.optimizers import Adam # type: ignore
+from tensorflow.keras.regularizers import l2 # type: ignore
+from tensorflow.keras.callbacks import EarlyStopping # type: ignore
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -141,7 +141,7 @@ while True:
 
     from functools import reduce
     # List of all the DataFrames to be merged
-    dataframes = [h_nord, df_sbil_lagged, mgp_volumes_nord, power_curve] #mi1_volumes_nord
+    dataframes = [h_nord, df_sbil_lagged, power_curve] #mi1_volumes_nord  mgp_volumes_nord,
     # Use reduce to merge all DataFrames on 'ORAINI'
     df_nord_h_project = reduce(lambda left, right: pd.merge(left, right, on='ORAINI', how='outer'), dataframes)
 
@@ -161,7 +161,7 @@ while True:
     # Define past, future, and present covariates
     past_covariates = []
 
-    future_covariates = df_nord[['MGP_NORD_PURCHASES', 'MGP_NORD_SALES']]
+    future_covariates = [] #df_nord[['MGP_NORD_PURCHASES', 'MGP_NORD_SALES']]
 
     present_covariates = df_nord[['SBIL_MWH_lag1', 'SBIL_MWH_lag2', 'SBIL_MWH_lag3', 'SBIL_MWH_lag24', 'UNBALANCE_IDRO-NON-PROGRAMMABILE_MACRONORD', 'UNBALANCE_IDRO-PROGRAMMABILE_NORD', 'UNBALANCE_SOLARE_NORD']]
     target = df_nord['SBIL_MWH']
@@ -219,7 +219,7 @@ while True:
     y_pred_orig = scaler_y.inverse_transform(y_pred.reshape(-1, 1)).flatten()
 
     # Number of future steps to predict
-    n_future_steps = 4  # Direct prediction of 2 steps ahead
+    n_future_steps = 4  # Predict 4 steps ahead
 
     # Get the last timestamp from the dataset
     last_timestamp = df_nord.index[-1]
@@ -235,14 +235,15 @@ while True:
     for step in range(n_future_steps):
         # Predict the next step
         next_value = model2.predict(current_input)
-        
+    
         # Save the prediction
         predicted_values.append(next_value.flatten()[0])
-        
+    
         # Update the input for the next prediction
-        # Use the predicted value as a replacement for the target feature in `current_input`
-        # Assuming the target is the last column of `X_test`, replace it iteratively
-        current_input = np.append(current_input[:, :-1], next_value, axis=1)
+        # Assuming we need to shift the features and append the predicted value to the input
+        # The target feature is at the last position of `current_input`
+        current_input = np.roll(current_input, shift=-1, axis=1)  # Shift all features to the left
+        current_input[0, -1] = next_value  # Replace the last feature with the predicted value
 
     # Convert predicted values to the original scale
     predicted_values_orig = scaler_y.inverse_transform(np.array(predicted_values).reshape(-1, 1)).flatten()
